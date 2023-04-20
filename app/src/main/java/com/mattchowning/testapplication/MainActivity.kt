@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Divider
@@ -26,6 +27,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,10 +39,16 @@ import com.mattchowning.testapplication.ui.theme.TestApplicationTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.capitalize
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.NonCancellable.start
+import java.nio.channels.Selector
+import java.util.Locale
+import kotlin.random.Random
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,12 +72,12 @@ class MainActivity : ComponentActivity() {
                     ) {
 
                         var selectedSound by rememberSaveable { mutableStateOf(sounds.first()) }
-                        Selector(
-                            name = "Sound",
-                            options = sounds,
-                            selected = selectedSound,
-                            onChange = { selectedSound = it }
-                        )
+//                        Selector(
+//                            name = "Sound",
+//                            options = sounds,
+//                            selected = selectedSound,
+//                            onChange = { selectedSound = it }
+//                        )
 
                         var selectedContentType by rememberSaveable { mutableStateOf(contentTypes.first()) }
                         Selector(
@@ -87,7 +95,8 @@ class MainActivity : ComponentActivity() {
                             onChange = { selectedUsageType = it },
                         )
 
-                        var selectedFocusType by rememberSaveable { mutableStateOf(focusTypes.first()) }
+                        val audioFocusGainTransientMayDuck = focusTypes[2]
+                        var selectedFocusType by rememberSaveable { mutableStateOf(audioFocusGainTransientMayDuck) }
                         Selector(
                             name = "Focus Type",
                             options = focusTypes,
@@ -104,31 +113,22 @@ class MainActivity : ComponentActivity() {
                                     .build()
 
 
-//                                AudioManager.requestAudioFocus(
-//                                    null,
-//                                    AudioManager.STREAM_MUSIC,
-//                                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
-//                                )
-
                                 val audioFocusRequest = AudioFocusRequest.Builder(selectedFocusType.second)
                                     .setAudioAttributes(audioAttributes)
-//                                        .setForceDucking(true)
-//                                        .setAcceptsDelayedFocusGain(true)
-//                                        .setWillPauseWhenDucked(true)
                                     .build()
+
                                 audioManager.requestAudioFocus(audioFocusRequest)
-
-
                                 MediaPlayer.create(
                                     currentContext,
                                     selectedSound.second,
                                     audioAttributes,
                                     0
-                                )?.apply {
-                                    start()
+                                ).apply {
                                     setOnCompletionListener {
                                         audioManager.abandonAudioFocusRequest(audioFocusRequest)
                                     }
+                                    start()
+
                                 }
                             },
                             modifier = Modifier
@@ -142,7 +142,7 @@ class MainActivity : ComponentActivity() {
 
                         Button(
                             onClick = {
-                                val audioFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT).build()
+                                val audioFocusRequest = AudioFocusRequest.Builder(selectedFocusType.second).build()
                                 audioManager.requestAudioFocus(audioFocusRequest)
                                 audioManager.abandonAudioFocusRequest(audioFocusRequest)
                             },
@@ -151,11 +151,96 @@ class MainActivity : ComponentActivity() {
                                 .padding(16.dp)
                         ) {
                             Text(
-                                text = "Request and immediately abandon transient focus",
+                                text = "Request and immediately abandon focus",
                                 textAlign = TextAlign.Center
                             )
                         }
 
+                        Divider()
+
+                        Text(
+                            text = "Number of events:",
+                            Modifier.padding(horizontal = 16.dp)
+                        )
+                        var numToSpam by rememberSaveable { mutableStateOf(10) }
+                        val changeAmount = 5
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(24.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Spacer(modifier = Modifier.width(24.dp))
+                            Button(
+                                onClick = { numToSpam -= changeAmount }
+                            ) { Text("-") }
+
+                            Text(text = "$numToSpam")
+
+                            Button(
+                                onClick = { numToSpam += changeAmount }
+                            ) { Text("+") }
+                        }
+
+                        var endWith by rememberSaveable { mutableStateOf(FocusState.Loss) }
+                        Text(
+                            text = "End with:",
+                            Modifier.padding(horizontal = 16.dp)
+                        )
+                        FocusState.values().forEach {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                                    .selectable(
+                                        selected = endWith == it,
+                                        onClick = { endWith = it }
+                                    )
+                                    .padding(horizontal = 24.dp),
+                            ) {
+                                RadioButton(
+                                    selected = endWith == it,
+                                    onClick = { endWith = it }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(text = it.name)
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                val audioFocusRequest = AudioFocusRequest.Builder(selectedFocusType.second).build()
+
+                                // Spam all but last focus event
+                                repeat(numToSpam - 1) {
+                                    if (Random.nextBoolean()) {
+                                        audioManager.requestAudioFocus(audioFocusRequest)
+                                    } else {
+                                        audioManager.abandonAudioFocusRequest(audioFocusRequest)
+                                    }
+                                }
+
+                                // End with the selected ending focus event
+                                when (endWith) {
+                                    FocusState.Gain -> audioManager.requestAudioFocus(audioFocusRequest)
+                                    FocusState.Loss -> audioManager.abandonAudioFocusRequest(audioFocusRequest)
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .padding(top = 8.dp)
+                        ) {
+                            Text(
+                                text = "Spam $numToSpam random* focus requests ending with a ${endWith.toString().uppercase()} request",
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                        Text(
+                            text = "* 'random' means 50/50 chance of gain or loss. All requests will have the selected content, usage, and focus types.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp)
+                            ,
+                        )
                     }
                 }
             }
@@ -209,6 +294,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private enum class FocusState { Loss, Gain }
+
 @Composable
 fun Greeting(name: String, modifier: Modifier = Modifier) {
     Text(
@@ -250,44 +337,11 @@ val usageTypes = listOf(
     // Pair("Call Assistant", AudioAttributes.USAGE_CALL_ASSISTANT),
 )
 
-
-//val suppressableUsageTypes = listOf(
-//    Pair("Notification", AudioAttributes.SUPPRESSIBLE_NOTIFICATION),
-//    Pair("Call", AudioAttributes.SUPPRESSIBLE_CALL),
-//    Pair("Never", AudioAttributes.SUPPRESSIBLE_NEVER),
-//    Pair("Alarm", AudioAttributes.SUPPRESSIBLE_ALARM),
-//    Pair("Media", AudioAttributes.SUPPRESSIBLE_MEDIA),
-//    Pair("System", AudioAttributes.SUPPRESSIBLE_SYSTEM),
-//)
-
-// From android source
-//static {
-//    SUPPRESSIBLE_USAGES = new SparseIntArray();
-//    SUPPRESSIBLE_USAGES.put(USAGE_NOTIFICATION,                      SUPPRESSIBLE_NOTIFICATION);
-//    SUPPRESSIBLE_USAGES.put(USAGE_NOTIFICATION_RINGTONE,             SUPPRESSIBLE_CALL);
-//    SUPPRESSIBLE_USAGES.put(USAGE_NOTIFICATION_COMMUNICATION_REQUEST,SUPPRESSIBLE_CALL);
-//    SUPPRESSIBLE_USAGES.put(USAGE_NOTIFICATION_COMMUNICATION_INSTANT,SUPPRESSIBLE_NOTIFICATION);
-//    SUPPRESSIBLE_USAGES.put(USAGE_NOTIFICATION_COMMUNICATION_DELAYED,SUPPRESSIBLE_NOTIFICATION);
-//    SUPPRESSIBLE_USAGES.put(USAGE_NOTIFICATION_EVENT,                SUPPRESSIBLE_NOTIFICATION);
-//    SUPPRESSIBLE_USAGES.put(USAGE_ASSISTANCE_ACCESSIBILITY,          SUPPRESSIBLE_NEVER);
-//    SUPPRESSIBLE_USAGES.put(USAGE_VOICE_COMMUNICATION,               SUPPRESSIBLE_NEVER);
-//    SUPPRESSIBLE_USAGES.put(USAGE_VOICE_COMMUNICATION_SIGNALLING,    SUPPRESSIBLE_NEVER);
-//    SUPPRESSIBLE_USAGES.put(USAGE_ALARM,                             SUPPRESSIBLE_ALARM);
-//    SUPPRESSIBLE_USAGES.put(USAGE_MEDIA,                             SUPPRESSIBLE_MEDIA);
-//    SUPPRESSIBLE_USAGES.put(USAGE_ASSISTANCE_NAVIGATION_GUIDANCE,    SUPPRESSIBLE_MEDIA);
-//    SUPPRESSIBLE_USAGES.put(USAGE_GAME,                              SUPPRESSIBLE_MEDIA);
-//    SUPPRESSIBLE_USAGES.put(USAGE_ASSISTANT,                         SUPPRESSIBLE_MEDIA);
-//    SUPPRESSIBLE_USAGES.put(USAGE_CALL_ASSISTANT,                    SUPPRESSIBLE_NEVER);
-//    /** default volume assignment is STREAM_MUSIC, handle unknown usage as media */
-//    SUPPRESSIBLE_USAGES.put(USAGE_UNKNOWN,                           SUPPRESSIBLE_MEDIA);
-//    SUPPRESSIBLE_USAGES.put(USAGE_ASSISTANCE_SONIFICATION,           SUPPRESSIBLE_SYSTEM);
-//}
-
 val focusTypes = listOf(
     Pair("Gain", AudioManager.AUDIOFOCUS_GAIN),
     Pair("Gain Transient", AudioManager.AUDIOFOCUS_GAIN_TRANSIENT),
-    Pair("Gain Transient Exclusive", AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE),
     Pair("Gain Transient May Duck", AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK),
+    Pair("Gain Transient Exclusive", AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE),
 )
 
 val sounds = listOf<Pair<String, Int>>(
